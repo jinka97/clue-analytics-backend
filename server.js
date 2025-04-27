@@ -3,6 +3,7 @@ const axios = require('axios');
 const NodeCache = require('node-cache');
 const sqlite3 = require('sqlite3').verbose();
 const rateLimit = require('express-rate-limit');
+const auth = require('basic-auth');
 const app = express();
 const cache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
 
@@ -11,16 +12,22 @@ app.use(express.json());
 // Enable CORS for all routes
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   next();
 });
 
-// Rate limiting for the /subscribe endpoint
+// Rate limiting for /subscribe and /contact endpoints
 const subscribeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per window
+  max: 10,
   message: 'Too many subscription attempts from this IP, please try again later.',
+});
+
+const contactLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: 'Too many contact messages from this IP, please try again later.',
 });
 
 // Initialize SQLite database
@@ -29,7 +36,7 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
     console.error('Error opening database:', err.message);
   } else {
     console.log('Connected to SQLite database.');
-    // Create subscribers table if it doesn't exist
+    // Create subscribers table
     db.run(`
       CREATE TABLE IF NOT EXISTS subscribers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,8 +44,30 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
         subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    // Create messages table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        message TEXT NOT NULL,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
   }
 });
+
+// Basic authentication middleware
+const authenticate = (req, res, next) => {
+  const user = auth(req);
+  const apiKey = process.env.API_KEY || 'your-secret-api-key'; // Set this in Render environment variables
+
+  if (!user || user.name !== 'admin' || user.pass !== apiKey) {
+    res.status(401).set('WWW-Authenticate', 'Basic realm="Clue Analytics Admin"');
+    return res.json({ error: 'Unauthorized' });
+  }
+  next();
+};
 
 // Endpoint to fetch RSS feed
 app.get('/fetch-feed', async (req, res) => {
@@ -76,7 +105,6 @@ app.get('/fetch-feed', async (req, res) => {
 app.post('/subscribe', subscribeLimiter, async (req, res) => {
   const { email } = req.body;
 
-  // Basic email validation
   if (!email || typeof email !== 'string') {
     return res.status(400).json({ error: 'Email is required and must be a string' });
   }
@@ -87,7 +115,6 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
   }
 
   try {
-    // Insert email into the database
     const stmt = db.prepare('INSERT INTO subscribers (email) VALUES (?)');
     stmt.run(email, (err) => {
       if (err) {
@@ -106,8 +133,67 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
   }
 });
 
+// Endpoint to handle contact form submissions
+app.post('/contact', contactLimiter, async (req, res) => {
+  const { name, email, message } = req.body;
+
+  // Validate inputs
+  if (!name || typeof name !== 'string') {
+    return res.status(400).json({ error: 'Name is required and must be a string' });
+  }
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Email is required and must be a string' });
+  }
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ error: 'Message is required and must be a string' });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+
+  try {
+    const stmt = db.prepare('INSERT INTO messages (name, email, message) VALUES (?, ?, ?)');
+    stmt.run(name, email, message, (err) => {
+      if (err) {
+        console.error('Error inserting message:', err.message);
+        return res.status(500).json({ error: 'Failed to send message' });
+      }
+      stmt.finalize();
+      res.status(200).json({ message: 'Message sent successfully!' });
+    });
+  } catch (err) {
+    console.error('Error processing message:', err.message);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+// Endpoint to retrieve subscribers (secured)
+app.get('/subscribers', authenticate, (req, res) => {
+  db.all('SELECT * FROM subscribers ORDER BY subscribed_at DESC', [], (err, rows) => {
+    if (err) {
+      console.error('Error retrieving subscribers:', err.message);
+      return res.status(500).json({ error: 'Failed to retrieve subscribers' });
+    }
+    res.json(rows);
+  });
+});
+
+// Endpoint to retrieve messages (secured)
+app.get('/messages', authenticate, (req, res) => {
+  db.all('SELECT * FROM messages ORDER BY sent_at DESC', [], (err, rows) => {
+    if (err) {
+      console.error('Error retrieving messages:', err.message);
+      return res.status(500).json({ error: 'Failed to retrieve messages' });
+    }
+    res.json(rows);
+  });
+});
+
 // Start the server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
 });
+
