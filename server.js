@@ -1,16 +1,43 @@
 const express = require('express');
 const axios = require('axios');
 const NodeCache = require('node-cache');
+const sqlite3 = require('sqlite3').verbose();
+const rateLimit = require('express-rate-limit');
 const app = express();
 const cache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
 
 app.use(express.json());
 
-// Middleware to enable CORS for all routes
+// Enable CORS for all routes
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   next();
+});
+
+// Rate limiting for the /subscribe endpoint
+const subscribeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Limit each IP to 10 requests per window
+  message: 'Too many subscription attempts from this IP, please try again later.',
+});
+
+// Initialize SQLite database
+const db = new sqlite3.Database('./subscribers.db', (err) => {
+  if (err) {
+    console.error('Error opening database:', err.message);
+  } else {
+    console.log('Connected to SQLite database.');
+    // Create subscribers table if it doesn't exist
+    db.run(`
+      CREATE TABLE IF NOT EXISTS subscribers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE,
+        subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
 });
 
 // Endpoint to fetch RSS feed
@@ -21,7 +48,6 @@ app.get('/fetch-feed', async (req, res) => {
     return res.status(400).json({ error: 'URL parameter is required' });
   }
 
-  // Check if the feed is in the cache
   const cachedFeed = cache.get(url);
   if (cachedFeed) {
     console.log(`Serving cached feed for ${url}`);
@@ -36,7 +62,6 @@ app.get('/fetch-feed', async (req, res) => {
     });
     const feedData = response.data;
 
-    // Cache the feed data
     cache.set(url, feedData);
     console.log(`Fetched and cached feed for ${url}`);
 
@@ -44,6 +69,40 @@ app.get('/fetch-feed', async (req, res) => {
   } catch (err) {
     console.error(`Error fetching feed from ${url}:`, err.message);
     res.status(500).json({ error: `Failed to fetch feed: ${err.message}` });
+  }
+});
+
+// Endpoint to handle newsletter subscriptions
+app.post('/subscribe', subscribeLimiter, async (req, res) => {
+  const { email } = req.body;
+
+  // Basic email validation
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Email is required and must be a string' });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email address' });
+  }
+
+  try {
+    // Insert email into the database
+    const stmt = db.prepare('INSERT INTO subscribers (email) VALUES (?)');
+    stmt.run(email, (err) => {
+      if (err) {
+        if (err.message.includes('UNIQUE constraint failed')) {
+          return res.status(409).json({ error: 'Email already subscribed' });
+        }
+        console.error('Error inserting email:', err.message);
+        return res.status(500).json({ error: 'Failed to subscribe' });
+      }
+      stmt.finalize();
+      res.status(200).json({ message: 'Successfully subscribed!' });
+    });
+  } catch (err) {
+    console.error('Error processing subscription:', err.message);
+    res.status(500).json({ error: 'Failed to subscribe' });
   }
 });
 
