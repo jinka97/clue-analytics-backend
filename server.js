@@ -83,10 +83,10 @@ if (!apiKey) {
 // Basic authentication middleware
 const authenticate = (req, res, next) => {
   const user = auth(req);
-  console.log('Auth user:', user);
-  console.log('Expected API_KEY:', apiKey);
-  console.log('Username match:', user && user.name === 'admin');
-  console.log('Password match:', user && user.pass === apiKey);
+  //console.log('Auth user:', user);
+  //console.log('Expected API_KEY:', apiKey);
+  //console.log('Username match:', user && user.name === 'admin');
+  //console.log('Password match:', user && user.pass === apiKey);
   if (!user || user.name !== 'admin' || user.pass !== apiKey) {
     res.status(401).set('WWW-Authenticate', 'Basic realm="Clue Analytics Admin"');
     return res.json({ error: 'Unauthorized' });
