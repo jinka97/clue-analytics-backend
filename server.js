@@ -7,7 +7,6 @@ const auth = require('basic-auth');
 const app = express();
 const cache = new NodeCache({ stdTTL: 3600 });
 
-// Trust only the first proxy hop (Render)
 app.set('trust proxy', 1);
 
 app.use(express.json());
@@ -26,13 +25,12 @@ const subscribeLimiter = rateLimit({
   max: 10,
   message: 'Too many subscription attempts from this IP, please try again later.',
   keyGenerator: (req) => {
-    // Use the first IP in X-Forwarded-For (client IP) for rate-limiting
     const forwardedFor = req.headers['x-forwarded-for'];
     if (forwardedFor) {
       const ips = forwardedFor.split(',').map(ip => ip.trim());
-      return ips[0]; // Use the first IP (client's real IP)
+      return ips[0];
     }
-    return req.ip; // Fallback to req.ip if header is missing
+    return req.ip;
   },
 });
 
@@ -85,6 +83,10 @@ if (!apiKey) {
 // Basic authentication middleware
 const authenticate = (req, res, next) => {
   const user = auth(req);
+  console.log('Auth user:', user);
+  console.log('Expected API_KEY:', apiKey);
+  console.log('Username match:', user && user.name === 'admin');
+  console.log('Password match:', user && user.pass === apiKey);
   if (!user || user.name !== 'admin' || user.pass !== apiKey) {
     res.status(401).set('WWW-Authenticate', 'Basic realm="Clue Analytics Admin"');
     return res.json({ error: 'Unauthorized' });
@@ -158,7 +160,7 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
 
 // Endpoint to handle contact form submissions
 app.post('/contact', contactLimiter, async (req, res) => {
-  const { name, email, message } = req.body;
+  const { email, message, name } = req.body;
 
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'Name is required and must be a string' });
