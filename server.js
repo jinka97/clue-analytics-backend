@@ -1,4 +1,3 @@
-require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const NodeCache = require('node-cache');
@@ -6,7 +5,13 @@ const sqlite3 = require('sqlite3').verbose();
 const rateLimit = require('express-rate-limit');
 const auth = require('basic-auth');
 const app = express();
-const cache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
+const cache = new NodeCache({ stdTTL: 3600 });
+
+// Debug: Log all environment variables
+console.log('Environment variables:', process.env);
+
+// Debug: Log API_KEY specifically
+console.log('API_KEY:', process.env.API_KEY);
 
 app.use(express.json());
 
@@ -20,13 +25,13 @@ app.use((req, res, next) => {
 
 // Rate limiting for /subscribe and /contact endpoints
 const subscribeLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 10,
   message: 'Too many subscription attempts from this IP, please try again later.',
 });
 
 const contactLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 5,
   message: 'Too many contact messages from this IP, please try again later.',
 });
@@ -60,7 +65,7 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
 const apiKey = process.env.API_KEY;
 if (!apiKey) {
   console.error('Error: API_KEY environment variable is not set.');
-  process.exit(1); // Exit the process with an error code
+  process.exit(1);
 }
 
 // Basic authentication middleware
@@ -199,4 +204,3 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
 });
-
