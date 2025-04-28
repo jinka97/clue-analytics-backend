@@ -60,7 +60,7 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
 // Basic authentication middleware
 const authenticate = (req, res, next) => {
   const user = auth(req);
-  const apiKey = process.env.API_KEY || 'your-secret-api-key'; // Set this in Render environment variables
+  const apiKey = process.env.API_KEY || 'your-secret-key'; // to be set in the Render environment variables
 
   if (!user || user.name !== 'admin' || user.pass !== apiKey) {
     res.status(401).set('WWW-Authenticate', 'Basic realm="Clue Analytics Admin"');
