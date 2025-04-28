@@ -7,11 +7,8 @@ const auth = require('basic-auth');
 const app = express();
 const cache = new NodeCache({ stdTTL: 3600 });
 
-// Debug: Log all environment variables
-console.log('Environment variables:', process.env);
-
-// Debug: Log API_KEY specifically
-console.log('API_KEY:', process.env.API_KEY);
+// Trust proxies (required for Render to handle X-Forwarded-For correctly)
+app.set('trust proxy', true);
 
 app.use(express.json());
 
@@ -200,7 +197,7 @@ app.get('/messages', authenticate, (req, res) => {
 });
 
 // Start the server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`Backend server running on http://localhost:${PORT}`);
 });
