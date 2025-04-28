@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const NodeCache = require('node-cache');
@@ -36,7 +37,6 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
     console.error('Error opening database:', err.message);
   } else {
     console.log('Connected to SQLite database.');
-    // Create subscribers table
     db.run(`
       CREATE TABLE IF NOT EXISTS subscribers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +44,6 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
         subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    // Create messages table
     db.run(`
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -57,11 +56,16 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
   }
 });
 
+// Validate API_KEY at startup
+const apiKey = process.env.API_KEY;
+if (!apiKey) {
+  console.error('Error: API_KEY environment variable is not set.');
+  process.exit(1); // Exit the process with an error code
+}
+
 // Basic authentication middleware
 const authenticate = (req, res, next) => {
   const user = auth(req);
-  const apiKey = process.env.API_KEY || 'your-secret-key'; // to be set in the Render environment variables
-
   if (!user || user.name !== 'admin' || user.pass !== apiKey) {
     res.status(401).set('WWW-Authenticate', 'Basic realm="Clue Analytics Admin"');
     return res.json({ error: 'Unauthorized' });
@@ -137,7 +141,6 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
 app.post('/contact', contactLimiter, async (req, res) => {
   const { name, email, message } = req.body;
 
-  // Validate inputs
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'Name is required and must be a string' });
   }
