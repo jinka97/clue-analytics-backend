@@ -7,8 +7,8 @@ const auth = require('basic-auth');
 const app = express();
 const cache = new NodeCache({ stdTTL: 3600 });
 
-// Trust proxies (required for Render to handle X-Forwarded-For correctly)
-app.set('trust proxy', true);
+// Trust only the first proxy hop (Render)
+app.set('trust proxy', 1);
 
 app.use(express.json());
 
@@ -25,12 +25,29 @@ const subscribeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: 'Too many subscription attempts from this IP, please try again later.',
+  keyGenerator: (req) => {
+    // Use the first IP in X-Forwarded-For (client IP) for rate-limiting
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      const ips = forwardedFor.split(',').map(ip => ip.trim());
+      return ips[0]; // Use the first IP (client's real IP)
+    }
+    return req.ip; // Fallback to req.ip if header is missing
+  },
 });
 
 const contactLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
   message: 'Too many contact messages from this IP, please try again later.',
+  keyGenerator: (req) => {
+    const forwardedFor = req.headers['x-forwarded-for'];
+    if (forwardedFor) {
+      const ips = forwardedFor.split(',').map(ip => ip.trim());
+      return ips[0];
+    }
+    return req.ip;
+  },
 });
 
 // Initialize SQLite database
