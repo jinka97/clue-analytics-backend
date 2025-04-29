@@ -5,6 +5,7 @@ const NodeCache = require('node-cache');
 const sqlite3 = require('sqlite3').verbose();
 const rateLimit = require('express-rate-limit');
 const auth = require('basic-auth');
+const sgMail = require('@sendgrid/mail'); // Import SendGrid library
 const app = express();
 const cache = new NodeCache({ stdTTL: 3600 });
 
@@ -66,7 +67,6 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
         console.error('Error creating subscribers table:', err.message);
       } else {
         console.log('Subscribers table ready.');
-        // Log current subscribers on startup
         db.all('SELECT * FROM subscribers', [], (err, rows) => {
           if (err) {
             console.error('Error fetching subscribers on startup:', err.message);
@@ -89,7 +89,6 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
         console.error('Error creating messages table:', err.message);
       } else {
         console.log('Messages table ready.');
-        // Log current messages on startup
         db.all('SELECT * FROM messages', [], (err, rows) => {
           if (err) {
             console.error('Error fetching messages on startup:', err.message);
@@ -106,6 +105,21 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
 const apiKey = process.env.API_KEY;
 if (!apiKey) {
   console.error('Error: API_KEY environment variable is not set.');
+  process.exit(1);
+}
+
+// Configure SendGrid
+const sendgridApiKey = process.env.SENDGRID_API_KEY;
+if (!sendgridApiKey) {
+  console.error('Error: SENDGRID_API_KEY environment variable is not set.');
+  process.exit(1);
+}
+sgMail.setApiKey(sendgridApiKey);
+
+// Admin email for notifications (set in Render environment variables)
+const adminEmail = process.env.ADMIN_EMAIL;
+if (!adminEmail) {
+  console.error('Error: ADMIN_EMAIL environment variable is not set.');
   process.exit(1);
 }
 
@@ -176,7 +190,6 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
       }
       stmt.finalize();
       console.log(`Subscribed email: ${email}`);
-      // Log all subscribers after insertion
       db.all('SELECT * FROM subscribers', [], (err, rows) => {
         if (err) {
           console.error('Error fetching subscribers after insert:', err.message);
@@ -184,6 +197,35 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
           console.log('Current subscribers:', rows);
         }
       });
+
+      // Send confirmation email to the subscriber
+      const subscriberMsg = {
+        to: email,
+        from: 'jinkaproject97@gmail.com', // admin@clueanalytics.com -Replace with your verified sender email
+        subject: 'Thank You for Subscribing to Clue Analytics!',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #1d4ed8;">Welcome to Clue Analytics!</h2>
+            <p>Thank you for subscribing to our newsletter. We're excited to share the latest insights, updates, and AI/ML solutions with you.</p>
+            <p>Stay tuned for expert tips and strategies to transform your business with AI and Machine Learning.</p>
+            <p style="margin-top: 20px;">
+              <a href="https://jinka97.github.io/clue-analytics/" style="background-color: #1d4ed8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Visit Our Website</a>
+            </p>
+            <p style="color: #6b7280; font-size: 12px; margin-top: 20px;">
+              If you did not subscribe, please ignore this email or contact us at <a href="mailto:support@clueanalytics.com">support@clueanalytics.com</a>.
+            </p>
+          </div>
+        `,
+      };
+
+      sgMail.send(subscriberMsg)
+        .then(() => {
+          console.log(`Confirmation email sent to ${email}`);
+        })
+        .catch((error) => {
+          console.error('Error sending confirmation email:', error.message);
+        });
+
       res.status(200).json({ message: 'Successfully subscribed!' });
     });
   } catch (err) {
@@ -220,7 +262,6 @@ app.post('/contact', contactLimiter, async (req, res) => {
       }
       stmt.finalize();
       console.log(`Message sent from ${name} (${email}): ${message}`);
-      // Log all messages after insertion
       db.all('SELECT * FROM messages', [], (err, rows) => {
         if (err) {
           console.error('Error fetching messages after insert:', err.message);
@@ -228,6 +269,33 @@ app.post('/contact', contactLimiter, async (req, res) => {
           console.log('Current messages:', rows);
         }
       });
+
+      // Send notification email to admin
+      const adminMsg = {
+        to: adminEmail,
+        from: 'jinkaproject97@gmail.com', // admin@clueanalytics.com- Replace with your verified sender email
+        subject: 'New Contact Message from Clue Analytics',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #1d4ed8;">New Contact Message</h2>
+            <p><strong>Name:</strong> ${name}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Message:</strong> ${message}</p>
+            <p style="margin-top: 20px;">
+              <a href="https://jinka97.github.io/clue-analytics/#/admin" style="background-color: #1d4ed8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View in Admin Dashboard</a>
+            </p>
+          </div>
+        `,
+      };
+
+      sgMail.send(adminMsg)
+        .then(() => {
+          console.log(`Notification email sent to admin (${adminEmail}) for message from ${name}`);
+        })
+        .catch((error) => {
+          console.error('Error sending admin notification email:', error.message);
+        });
+
       res.status(200).json({ message: 'Message sent successfully!' });
     });
   } catch (err) {
