@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const NodeCache = require('node-cache');
@@ -60,7 +61,21 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
         email TEXT NOT NULL UNIQUE,
         subscribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
-    `);
+    `, (err) => {
+      if (err) {
+        console.error('Error creating subscribers table:', err.message);
+      } else {
+        console.log('Subscribers table ready.');
+        // Log current subscribers on startup
+        db.all('SELECT * FROM subscribers', [], (err, rows) => {
+          if (err) {
+            console.error('Error fetching subscribers on startup:', err.message);
+          } else {
+            console.log('Subscribers on startup:', rows);
+          }
+        });
+      }
+    });
     db.run(`
       CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +84,21 @@ const db = new sqlite3.Database('./subscribers.db', (err) => {
         message TEXT NOT NULL,
         sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
-    `);
+    `, (err) => {
+      if (err) {
+        console.error('Error creating messages table:', err.message);
+      } else {
+        console.log('Messages table ready.');
+        // Log current messages on startup
+        db.all('SELECT * FROM messages', [], (err, rows) => {
+          if (err) {
+            console.error('Error fetching messages on startup:', err.message);
+          } else {
+            console.log('Messages on startup:', rows);
+          }
+        });
+      }
+    });
   }
 });
 
@@ -83,10 +112,6 @@ if (!apiKey) {
 // Basic authentication middleware
 const authenticate = (req, res, next) => {
   const user = auth(req);
-  //console.log('Auth user:', user);
-  //console.log('Expected API_KEY:', apiKey);
-  //console.log('Username match:', user && user.name === 'admin');
-  //console.log('Password match:', user && user.pass === apiKey);
   if (!user || user.name !== 'admin' || user.pass !== apiKey) {
     res.status(401).set('WWW-Authenticate', 'Basic realm="Clue Analytics Admin"');
     return res.json({ error: 'Unauthorized' });
@@ -150,6 +175,15 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
         return res.status(500).json({ error: 'Failed to subscribe' });
       }
       stmt.finalize();
+      console.log(`Subscribed email: ${email}`);
+      // Log all subscribers after insertion
+      db.all('SELECT * FROM subscribers', [], (err, rows) => {
+        if (err) {
+          console.error('Error fetching subscribers after insert:', err.message);
+        } else {
+          console.log('Current subscribers:', rows);
+        }
+      });
       res.status(200).json({ message: 'Successfully subscribed!' });
     });
   } catch (err) {
@@ -160,7 +194,7 @@ app.post('/subscribe', subscribeLimiter, async (req, res) => {
 
 // Endpoint to handle contact form submissions
 app.post('/contact', contactLimiter, async (req, res) => {
-  const { email, message, name } = req.body;
+  const { name, email, message } = req.body;
 
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'Name is required and must be a string' });
@@ -185,6 +219,15 @@ app.post('/contact', contactLimiter, async (req, res) => {
         return res.status(500).json({ error: 'Failed to send message' });
       }
       stmt.finalize();
+      console.log(`Message sent from ${name} (${email}): ${message}`);
+      // Log all messages after insertion
+      db.all('SELECT * FROM messages', [], (err, rows) => {
+        if (err) {
+          console.error('Error fetching messages after insert:', err.message);
+        } else {
+          console.log('Current messages:', rows);
+        }
+      });
       res.status(200).json({ message: 'Message sent successfully!' });
     });
   } catch (err) {
